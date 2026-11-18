@@ -1,0 +1,20 @@
+# Application-level permissions for the bridge commands that the local
+# TextGen page is allowed to call.
+#
+# Tauri v2 applies the ACL to custom commands as well as plugin commands when
+# the caller is a remote origin, so these must be granted explicitly.
+
+[[permission]]
+identifier = "allow-ping"
+description = "Smoke-test IPC round trip."
+commands.allow = ["ping"]
+
+[[permission]]
+identifier = "allow-pick-directory"
+description = "Open the native folder picker for the model directory field."
+commands.allow = ["pick_directory"]
+
+[[permission]]
+identifier = "allow-open-external"
+description = "Open http(s) links in the system browser."
+commands.allow = ["open_external"]

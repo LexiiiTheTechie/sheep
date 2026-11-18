@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sheep</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --line: #23282f;
+    --text: #e7e9ee;
+    --muted: #8b929e;
+    --accent: #d8c39a;
+    --danger: #ff8f8f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #1a1f26 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    place-items: center;
+    user-select: none;
+  }
+  .wrap {
+    width: min(520px, 82vw);
+    text-align: center;
+  }
+  .mark {
+    width: 56px; height: 56px;
+    margin: 0 auto 22px;
+    border-radius: 16px;
+    background: linear-gradient(160deg, #22262d, #12151a);
+    border: 1px solid var(--line);
+    display: grid; place-items: center;
+    font-weight: 600; font-size: 24px; color: var(--accent);
+    box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: .2px; }
+  p { margin: 0; }
+  #status { color: var(--muted); min-height: 22px; }
+  .bar {
+    margin: 26px auto 14px;
+    height: 3px; width: 190px;
+    border-radius: 999px;
+    background: var(--line);
+    overflow: hidden;
+    position: relative;
+  }
+  .bar span {
+    position: absolute; inset: 0;
+    width: 40%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 1.5s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+  }
+  .hint { margin-top: 18px; color: #5f6672; font-size: 12px; }
+  #err {
+    display: none;
+    margin-top: 26px;
+    padding: 16px;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--panel);
+    border: 1px solid #3a2b2b;
+    border-radius: 10px;
+    color: var(--danger);
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    user-select: text;
+  }
+  #err.visible { display: block; }
+  .bar.hidden { display: none; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark">S</div>
+    <h1>Sheep</h1>
+    <p id="status">Starting the TextGen engine…</p>
+    <div class="bar" id="bar"><span></span></div>
+    <p class="hint" id="hint">Engine output is streamed to the terminal and to <code>cache/sheep-shell.log</code>.</p>
+    <pre id="err"></pre>
+  </div>
+  <script>
+    window.sheepFail = function (message) {
+      var status = document.getElementById("status");
+      var bar = document.getElementById("bar");
+      var hint = document.getElementById("hint");
+      var err = document.getElementById("err");
+      status.textContent = "The engine did not start.";
+      status.style.color = "var(--danger)";
+      bar.classList.add("hidden");
+      hint.textContent = "Fix the problem above, then restart Sheep.";
+      err.textContent = message;
+      err.classList.add("visible");
+    };
+  </script>
+</body>
+</html>
