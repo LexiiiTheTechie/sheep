@@ -56,11 +56,7 @@ impl Engine {
             .open(&log_path)
             .ok();
         if let Some(file) = log_file.as_mut() {
-            let _ = writeln!(
-                file,
-                "\n--- Sheep session started {} ---",
-                timestamp()
-            );
+            let _ = writeln!(file, "\n--- Sheep session started {} ---", timestamp());
             let _ = writeln!(file, "python: {}", python.display());
             let _ = writeln!(file, "server: {}", server.display());
             if inject_api_port {
@@ -281,9 +277,7 @@ impl Engine {
     }
 
     fn push_line(&self, line: String, port: u16) {
-        if line.contains("Running on local URL")
-            || line.contains(&format!("127.0.0.1:{port}"))
-        {
+        if line.contains("Running on local URL") || line.contains(&format!("127.0.0.1:{port}")) {
             self.ready.store(true, Ordering::SeqCst);
         }
 

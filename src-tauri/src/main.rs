@@ -252,8 +252,8 @@ fn install_signal_cleanup() {
             if read > 0 {
                 break;
             }
-            let interrupted = std::io::Error::last_os_error().kind()
-                == std::io::ErrorKind::Interrupted;
+            let interrupted =
+                std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted;
             if read == 0 || !interrupted {
                 return;
             }

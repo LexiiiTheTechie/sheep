@@ -19,6 +19,34 @@ owns the process lifecycle and the window.
   expects, plus an Edit menu so copy/paste shortcuts work on macOS.
 - Routes external links to the system browser.
 
+## Packaging
+
+```sh
+cd src-tauri
+cargo install tauri-cli --version "^2" --locked   # once
+cargo tauri build --bundles app                   # macOS: target/release/bundle/macos/Sheep.app
+cargo tauri build --no-bundle                     # Windows/Linux: target/release/sheep[.exe]
+```
+
+Release archives use this layout, produced by the six
+`.github/workflows/build-portable-release*.yml` jobs:
+
+```
+textgen-VERSION/
+├── textgen                  # launcher (src-tauri/portable/textgen.sh template)
+├── user_data/
+└── app/
+    ├── server.py, modules/, portable_env/
+    ├── Sheep.app/Contents/MacOS/sheep    # macOS
+    ├── sheep.exe                         # Windows
+    └── sheep                             # Linux
+```
+
+The shell finds `server.py` by walking up from the executable, which is why
+`app/` is the correct place for the `.app`. `src-tauri/Info.plist` adds
+`NSAllowsLocalNetworking` so plain HTTP to loopback is not blocked by App
+Transport Security — without it the packaged window renders blank.
+
 ## Lifecycle
 
 | Exit path | What happens |
@@ -137,7 +165,7 @@ src-tauri/
 
 | Platform | Status |
 |---|---|
-| macOS arm64 | **Primary target.** Built and smoke-tested end to end. |
+| macOS arm64 | **Primary target.** Built and smoke-tested end to end. Intel Macs are not supported. |
 | Windows x64 | Compiles (`cargo check --target x86_64-pc-windows-msvc`). Uses WebView2 and a Job Object for process-tree cleanup. Not yet run on hardware. |
 | Linux x64 | Not validated. Requires WebKitGTK 4.1 and `libayatana-appindicator` at build time; expect Gradio compatibility issues in WebKitGTK. |
 

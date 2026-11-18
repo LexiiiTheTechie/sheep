@@ -20,10 +20,7 @@ pub fn base_dir() -> PathBuf {
     }
 
     if let Ok(exe) = std::env::current_exe() {
-        let dir = exe
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf();
+        let dir = exe.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
         let candidates = [
             dir.clone(),
             dir.join("..").join("Resources"),
@@ -150,7 +147,9 @@ fn is_within(path: &Path, root: &Path) -> bool {
     };
 
     let parent = absolute.parent().unwrap_or(&absolute);
-    let resolved_parent = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+    let resolved_parent = parent
+        .canonicalize()
+        .unwrap_or_else(|_| parent.to_path_buf());
     let resolved = resolved_parent.join(absolute.file_name().unwrap_or_default());
 
     let resolved_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());

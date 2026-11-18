@@ -64,6 +64,9 @@ jobs:
 
           if ($env:CONFIGIN -ne 'Default') {$env:CONFIGIN.split(';').foreach({$matrix[$_.split(':')[0]] = $_.split(':')[1].split(',')})}
 
+          # Apple Silicon only: drop any Intel macOS runner added via config.
+          $matrix['os'] = @($matrix['os'] | Where-Object { $_ -notmatch 'intel' })
+
           if ($env:EXCLUDEIN -ne 'None') {
               $exclusions = @()
               $exclusions += $env:EXCLUDEIN.split(';').replace(':','=').replace(',',"`n") | ConvertFrom-StringData
@@ -86,11 +89,26 @@ jobs:
       PCKGVER: ${{ inputs.version }}
 
     steps:
+      # Build this fork, not upstream: src-tauri/ only exists here.
+      # `inputs.version` is now a release label, not the checkout ref.
       - uses: actions/checkout@v6
         with:
-          repository: 'oobabooga/textgen'
-          ref: ${{ inputs.version }}
           submodules: 'recursive'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: actions/setup-python@v6
         with:
@@ -150,44 +168,44 @@ jobs:
             # 6. Clean up
             rm -rf .git cmd* update_wizard* Colab-TextGen-GPU.ipynb docker setup.cfg .github .gitignore requirements/ one_click.py
 
-            # 5b. Bundle Electron desktop launcher
-            ELECTRON_VERSION="41.5.0"
+            # 5b. Build the Sheep desktop shell (Tauri)
             APP_DIR="app"
             if [[ "$RUNNER_OS" == "Windows" ]]; then
-                ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-win32-x64.zip"
-                ELECTRON_BIN="electron/electron.exe"
+                SHELL_REL="sheep.exe"
                 rm -f start_windows.bat
             elif [[ "$RUNNER_OS" == "macOS" ]]; then
-                if [[ "$OS_TYPE" == "macos-15-intel" ]]; then
-                    ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-darwin-x64.zip"
-                else
-                    ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-darwin-arm64.zip"
-                fi
-                ELECTRON_BIN="electron/Electron.app/Contents/MacOS/Electron"
+                SHELL_REL="Sheep.app/Contents/MacOS/sheep"
                 rm -f start_macos.sh
             else
-                ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-linux-x64.zip"
-                ELECTRON_BIN="electron/electron"
+                SHELL_REL="sheep"
                 rm -f start_linux.sh
             fi
 
-            echo "Downloading Electron ${ELECTRON_VERSION} (${ELECTRON_ZIP})..."
-            curl -L -o /tmp/electron.zip \
-                "https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/${ELECTRON_ZIP}"
-            mkdir electron
-            unzip -q /tmp/electron.zip -d electron
-            rm /tmp/electron.zip
+            echo "Installing the Tauri CLI..."
+            cargo install tauri-cli --version "^2" --locked
 
+            echo "Building the Sheep shell for ${RUNNER_OS}..."
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+                ( cd src-tauri && cargo tauri build --bundles app --config "{\"version\": \"${VERSION_CLEAN}\"}" )
+                cp -R src-tauri/target/release/bundle/macos/Sheep.app .
+            else
+                ( cd src-tauri && cargo tauri build --no-bundle --config "{\"version\": \"${VERSION_CLEAN}\"}" )
+                cp "src-tauri/target/release/sheep" "./${SHELL_REL}"
+            fi
+
+            # Launchers are generated before the Rust tree is dropped.
             if [[ "$RUNNER_OS" == "Windows" ]]; then
-                sed "s|__APP__|${APP_DIR}|g" desktop/textgen.bat > textgen.bat
+                sed -e "s|__APP__|${APP_DIR}|g" -e "s|__SHELL__|${SHELL_REL}|g" \
+                    src-tauri/portable/textgen.bat > textgen.bat
                 sed -i 's/$/\r/' textgen.bat
             else
-                sed "s|__APP__|${APP_DIR}|g; s|__ELECTRON__|${ELECTRON_BIN}|g" desktop/textgen.sh > textgen
+                sed -e "s|__APP__|${APP_DIR}|g" -e "s|__SHELL__|${SHELL_REL}|g" \
+                    src-tauri/portable/textgen.sh > textgen
                 chmod +x textgen
             fi
 
-            mv desktop/main.js desktop/preload.js desktop/package.json .
-            rm -rf desktop
+            # Neither the Electron wrapper nor the Rust sources ship in a release.
+            rm -rf src-tauri desktop
 
             # 5c. Restructure: textgen-VERSION/{textgen, user_data/, app/<everything else>}
             mkdir "${APP_DIR}"

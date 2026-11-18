@@ -8,11 +8,8 @@ pub fn install(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::AboutMetadata;
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
-    let about = PredefinedMenuItem::about(
-        app,
-        Some("About Sheep"),
-        Some(AboutMetadata::default()),
-    )?;
+    let about =
+        PredefinedMenuItem::about(app, Some("About Sheep"), Some(AboutMetadata::default()))?;
     let services = PredefinedMenuItem::services(app, None)?;
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
