@@ -1,8 +1,30 @@
 # PLAN: Native UI to replace Gradio
 
-**Status:** proposal, not started
+**Status:** approved, not started
 **Supersedes:** nothing (adds to `PLAN-stage-a-tauri-shell.md`)
 **Owner:** Sheep
+
+> **Resume here (for any agent picking this up):**
+> Nothing has been implemented yet. The next step is Phase P0 in §10: create
+> `ui/` (React + TypeScript + Vite), serve it from Tauri instead of navigating to
+> Gradio, implement the token handshake (§4.3), and expose `GET /health` +
+> `GET /system` from a new FastAPI app. Read §6.9 before touching auth: accounts
+> are **on by default** with a first-run prompt, and **every user is isolated** —
+> own chats, own loaded model slot. Extensions are out of scope (§2).
+> Confirmed decisions are in §0.1; do not re-litigate them without the user.
+
+---
+
+## 0.1 Decisions log (confirmed by the user)
+
+| Date | Decision |
+|---|---|
+| 2026-11-18 | **React** (React 19 + TypeScript + Vite) for the UI. |
+| 2026-11-18 | **Auth enabled by default**, with a **first-run prompt** letting the user create an account or explicitly skip it. |
+| 2026-11-18 | **Per-user isolation is mandatory**: separate chats, separate loaded models, no cross-user access. See §6.9. |
+| 2026-11-18 | **SQLite** for accounts and sessions. |
+| 2026-11-18 | **Extensions are out of scope** for now; they may be redesigned later. |
+| 2026-11-18 | Accounts are a first-class feature, not a LAN-only toggle. |
 
 ---
 
@@ -37,11 +59,14 @@ replaced.
 1. Full functional parity with today's Gradio UI, tab for tab (§4).
 2. Streaming that cannot go stale: state lives in the client store, the view is a
    pure function of it.
-3. Optional accounts, secure by construction (§6), toggleable from Settings.
-4. Same engine, same `settings.yaml`, same `user_data/` layout. No data migration.
-5. Runs inside the existing Tauri shell, which stops navigating to a remote URL
+3. Accounts enabled by default, with a first-run prompt; secure by construction
+   (§6).
+4. **Strict per-user isolation**: each account has its own chats and its own
+   loaded model, and cannot see or affect another account's data (§6.9).
+5. Same engine, same `settings.yaml`, same `user_data/` layout. No data migration.
+6. Runs inside the existing Tauri shell, which stops navigating to a remote URL
    and serves bundled assets instead.
-6. Keep `--nowebui`, `--api`, `--listen` working. The OpenAI-compatible API is
+7. Keep `--nowebui`, `--api`, `--listen` working. The OpenAI-compatible API is
    unchanged.
 
 ### Non-goals
@@ -49,8 +74,8 @@ replaced.
 - Rewriting inference, sampling, loaders, or model handling.
 - Cloud/multi-tenant deployment. This is a local desktop app that *can* be
   exposed on a LAN.
-- Reimplementing every extension. Extensions are phased; some stay Gradio-only.
-- Mobile.
+- **Extensions.** Out of scope for this plan; extension tabs disappear with the
+  Gradio UI and can be redesigned later.
 - Importing Gradio themes. Visual parity is not a goal; functional parity is.
 
 ---
@@ -69,7 +94,7 @@ Gradio builds 9 tab modules from `server.py:163`:
 | Image AI | `ui_image_generation.py` (997 lines) | SD WebUI integration: generate, gallery, model (not in portable builds) |
 | Training | `modules/training.py` | LoRA training, perplexity evaluation (not in portable builds) |
 | Session | `ui_session.py` | theme, show-two-columns, paste-to-attachment, spellcheck, save settings, apply flags/extensions, extension toggles, boolean flags, update check |
-| Extensions | `modules/extensions.py:229` | dynamic tabs contributed by `extensions/*` |
+| Extensions | `modules/extensions.py:229` | **Out of scope.** Extension tabs are dropped with Gradio; no replacement in this plan. |
 
 Supporting systems that are easy to forget:
 
@@ -148,7 +173,7 @@ The token identifies *the app to the engine*. It is not a user login; see §6.
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| UI | React 19 + TypeScript + Vite | largest ecosystem and the most reliable code-generation target; the UI is state-heavy, not rendering-heavy |
+| UI | React 19 + TypeScript + Vite | **decided** (§0.1); largest ecosystem and the most reliable code-generation target |
 | State | Zustand + TanStack Query | one store per concern; streaming writes to the store, never to the DOM |
 | Streaming | SSE (`text/event-stream`) | simpler than WebSocket, works through proxies, auto-reconnect is trivial; generation is one-directional |
 | Styling | CSS modules + design tokens | avoid a component framework lock-in while the design is still moving |
@@ -171,15 +196,15 @@ All endpoints require the bearer token except `/health`.
 | Group | Endpoints | Notes |
 |---|---|---|
 | System | `GET /health`, `GET /system` | version, device, ports, loaded model, flags |
-| Models | `GET /models`, `GET /models/current`, `POST /models/load`, `POST /models/unload`, `GET /models/download`, `GET /models/download/{id}` | load is long-running → returns a job id |
-| Chat | `GET /chats`, `POST /chats`, `PATCH /chats/{id}`, `DELETE /chats/{id}`, `GET /chats/{id}/messages`, `POST /chats/{id}/generate`, `POST /chats/{id}/stop`, `POST /chats/{id}/regenerate`, `POST /chats/{id}/branch` | generation returns `text/event-stream` |
+| Models | `GET /models`, `GET /models/slot`, `POST /models/slot/load`, `POST /models/slot/unload`, `GET /models/download`, `GET /models/download/{id}` | slot is always the caller's; load is long-running → job id |
+| Chat | `GET /chats`, `POST /chats`, `PATCH /chats/{id}`, `DELETE /chats/{id}`, `GET /chats/{id}/messages`, `POST /chats/{id}/generate`, `POST /chats/{id}/stop`, `POST /chats/{id}/regenerate`, `POST /chats/{id}/branch` | caller-scoped; generation returns `text/event-stream` |
 | Completions | `POST /completions` (SSE), `POST /completions/stop` | notebook/default tab |
 | Parameters | `GET/PATCH /parameters`, `GET /presets`, `POST /presets`, `DELETE /presets/{name}`, `GET /grammars` | writes through existing preset code |
 | Characters | `GET/POST/PATCH/DELETE /characters`, `POST /characters/import` | YAML/JSON/PNG import reuses existing parsers |
 | Settings | `GET/PATCH /settings`, `POST /settings/apply` | `settings.yaml` stays the source of truth |
 | Files | `POST /files/pick-directory`, `POST /files/upload`, `GET /files/download` | picker goes through Tauri IPC when bundled |
-| Extensions | `GET /extensions`, `PATCH /extensions/enabled`, `GET /extensions/{name}/params` | phase 3 |
-| Auth | `POST /auth/setup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password` | see §6 |
+| Extensions | — | **out of scope** (§2) |
+| Auth | `POST /auth/setup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password`, `GET/POST/PATCH/DELETE /auth/users` (owner only) | see §6 |
 | Images / Training | phase 4, optional | Gradio-only until then |
 
 ### 5.2 Conventions
@@ -244,7 +269,8 @@ SQLite at `user_data/accounts.db`, directory `0700`, file `0600`, WAL enabled.
 ```sql
 users(
   id INTEGER PRIMARY KEY,
-  username TEXT UNIQUE NOT NULL,          -- stored as given, compared case-insensitively
+  uuid TEXT UNIQUE NOT NULL,              -- opaque id used in paths and the API
+  username TEXT UNIQUE NOT NULL,          -- compared case-insensitively
   password_hash TEXT NOT NULL,            -- PHC string, e.g. $argon2id$v=19$m=65536,t=3,p=4$...
   role TEXT NOT NULL DEFAULT 'user',      -- 'owner' | 'user'
   created_at INTEGER NOT NULL,
@@ -262,10 +288,21 @@ sessions(
   expires_at INTEGER NOT NULL,
   user_agent TEXT
 )
+model_slots(
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  model TEXT,
+  api_port INTEGER,
+  llama_port INTEGER,
+  state TEXT NOT NULL DEFAULT 'empty',    -- empty | loading | ready | failed
+  last_used_at INTEGER,
+  pid INTEGER
+)
 audit(
   id INTEGER PRIMARY KEY,
   at INTEGER NOT NULL,
-  event TEXT NOT NULL,                    -- login_ok, login_fail, lockout, setup, logout, password_change
+  event TEXT NOT NULL,                    -- login_ok, login_fail, lockout, setup,
+                                          -- logout, password_change, forbidden_access
   username TEXT,
   source TEXT                             -- loopback peer or address
 )
@@ -314,17 +351,30 @@ audit(
 
 ### 6.7 Enabling and first run
 
-Accounts are **off by default** (single-user local app).
+Accounts are **on by default**. On first launch the user is shown a setup screen
+with two choices:
 
-- `Settings → Session → Accounts`: a switch, plus "create account".
-- Enabling requires setting a password for the owner account in the same dialog.
-- Also available headlessly:
-  `sheep --set-password <username>` (prompts on the terminal, never accepts the
-  password as an argument) and `sheep --reset-password <username>` for recovery.
-- There is no email recovery. The recovery path is local CLI access, which is
-  equivalent to physical access.
-- Optional later: TOTP second factor, per-user data directories (already
-  half-supported by `--multi-user`).
+1. **Create an account** (recommended, and required when listening beyond
+   loopback). Ask for username and password, with a strength hint. The first
+   account becomes `owner`.
+2. **Continue without an account** — explicit, one click, and only offered when
+   the app is bound to loopback. It is recorded in `settings.yaml` as
+   `auth.mode: local`, so the user is not asked again. This can be reversed from
+   Settings or with `sheep --enable-auth`.
+
+After setup, login is required on every launch unless "remember this device" was
+chosen, which issues a normal session (still hashed at rest, still expiring).
+
+Rules that follow from "secure by default":
+
+- `--listen` with `auth.mode: local` **refuses to start** unless
+  `--allow-insecure` is passed; it prints exactly what to run to create an
+  account.
+- There is no skipped-then-silently-exposed path: the check is at startup, not
+  at request time.
+- Recovery happens locally: `sheep --reset-password <username>` (prompts on the
+  terminal, never takes the password as an argument).
+- No email recovery: local CLI access is equivalent to physical access.
 
 ### 6.8 What we deliberately do not do
 
@@ -332,13 +382,83 @@ Accounts are **off by default** (single-user local app).
 - No "remember me" token that is not hashed at rest.
 - No password hints or security questions.
 - No auth logic duplicated in the frontend; the UI only reflects `GET /auth/me`.
+- No password ever passed as a command-line argument or environment variable.
+
+### 6.9 Per-user isolation
+
+Every account is a separate world. This is a hard requirement, not a nicety.
+
+**Data layout**
+
+```
+user_data/
+├── accounts.db                  # users, sessions, audit (shared, 0600)
+├── settings.yaml                # machine config (shared, owner-writable)
+└── users/
+    ├── <uuid>/                  # one directory per account, mode 0700
+    │   ├── chats/               # this user's chat histories only
+    │   ├── characters/
+    │   ├── presets/
+    │   ├── settings.yaml        # per-user preferences (theme, style…)
+    │   └── files/               # uploads, attachments, generated images
+    └── ...
+```
+
+The `owner` account may read shared settings; other accounts can read the shared
+configuration they need (model paths, flags) but never another user's directory.
+
+**Authorization rules**
+
+- Every request resolves the session to a `user_id`; there is no anonymous path.
+- Resource lookups are scoped: `SELECT … WHERE user_id = ?`. Chat, character,
+  preset, and file IDs are opaque UUIDv7, and a lookup that does not match the
+  caller returns `404`, not `403`, so existence is not leaked.
+- SSE streams are bound to the session that opened them; a stream cannot be
+  resumed by another user, and the generation's owner is checked on `stop`.
+- Audit every cross-boundary attempt (`forbidden_access`) with the source.
+
+**Per-user model loading**
+
+Each account gets its own **model slot**. A slot is one loaded model with its own
+`llama-server` process and its own port:
+
+```
+user A → slot 1 → llama-server :5006 → NemoMix 12B
+user B → slot 2 → llama-server :5007 → Qwen 0.5B
+```
+
+Consequences that must be designed for, not discovered:
+
+- **Memory is the limit.** Two models need two copies of weights in RAM/VRAM.
+  The owner sets `max_model_slots` (default: number of accounts, capped at 2).
+  When a slot cannot be created, the request fails with a clear message rather
+  than silently evicting someone else's model.
+- **Eviction is per-user.** A user may unload their own slot; only the owner can
+  evict another user's.
+- **Idle unload.** A slot with no requests for `slot_idle_minutes` (default 30,
+  configurable) is unloaded; the user is told on next use.
+- **One generation per slot at a time**, so a slot behaves exactly like today's
+  single-user engine.
+- If `max_model_slots = 1`, the first user to load a model wins and others see
+  "a model is loaded by another account; unloading is not permitted" — this is
+  the explicit fallback for low-memory machines.
+
+**Why this is safe**
+
+Isolation is enforced server-side, in the API layer, on every request. The UI
+never filters data for privacy; it only ever receives the caller's rows.
+
+**Cost warning, stated once:** loading a second model is expensive. This design
+is honest about hardware limits instead of pretending every user can have a 12 B
+model resident at the same time.
 
 ---
 
 ## 7. UI structure
 
 One window, a persistent left rail, and a content region. Screens map 1:1 to the
-old tabs so muscle memory survives.
+old tabs so muscle memory survives. Before the rail, two full-window states:
+**first-run setup** (create account or continue locally) and **login**.
 
 ```
 ┌────────────┬──────────────────────────────────────────────┐
@@ -357,7 +477,8 @@ Priority tiers:
 - **P0 (must ship):** Chat, Model, Parameters, Session.
 - **P1:** Notebook, Character, preset management, file save/load, settings
   persistence, keyboard shortcuts.
-- **P2:** Extensions, Image AI, Training, audio notification, update check.
+- **P2:** Image AI, Training, audio notification, update check.
+- **Dropped:** Extensions (§2).
 
 ### 7.1 State model
 
@@ -415,8 +536,8 @@ store, not by whichever view happens to be mounted.
 | **P0 — skeleton** | Vite SPA in `ui/`; Tauri serves it; token handshake; `/health`, `/system`; splash → app | Window renders local assets, no Gradio, no remote origin |
 | **P1 — model + chat** | model list/load/unload; chat CRUD; SSE streaming; stop/regenerate; markdown + code highlight; chat persistence | Can load a GGUF and hold a streaming conversation; switching screens mid-stream keeps updating |
 | **P2 — parity core** | Parameters + presets; instruction template; Session settings; file save/load; keyboard shortcuts; notebook | Daily use without opening Gradio |
-| **P3 — accounts** | SQLite store, Argon2id, sessions, rate limiting, setup/login screens, CLI reset, `--listen` enforcement | Auth tests pass; exposing on LAN is safe by default |
-| **P4 — breadth** | Characters, extensions, Image AI, Training, audio notification, update check | Feature checklist in §3 complete or explicitly waived |
+| **P3 — accounts + isolation** | SQLite store, Argon2id, sessions, rate limiting, first-run setup, login screen, CLI reset, `--listen` enforcement, per-user data dirs, per-user model slots | Isolation tests pass (A cannot read/stop/see B); auth tests pass; exposing on LAN is safe by default |
+| **P4 — breadth** | Characters, Image AI, Training, audio notification, update check | Feature checklist in §4 complete or explicitly waived |
 | **P5 — cutover** | `--ui native` default, Gradio behind `--ui gradio`; delete Gradio UI code once stable | No user-visible regression for one release cycle |
 
 Rough effort: P0–P2 is the bulk (~3–5 weeks of focused work), P3 ~1 week,
@@ -430,10 +551,21 @@ P4 open-ended and partly optional.
   every endpoint, including error codes.
 - **Auth:** hash format, parameter upgrades, lockout timing, session expiry,
   token hashing, unknown-user timing parity, `--listen` refusal.
+- **Isolation (must be adversarial, not happy-path):**
+  - user A requests user B's chat id → `404`, and the contents are never read;
+  - A calls `stop` on B's generation → rejected, B's stream continues;
+  - A attempts `PATCH`/`DELETE` on B's chat/preset/file → rejected;
+  - A cannot see B's model slot state or unload it;
+  - two users load different models simultaneously and each gets its own port;
+  - after A logs out, A's cookie cannot reach any endpoint.
 - **Streaming:** assert tokens arrive, `stop` cancels within a second, and a
   dropped connection does not leak a generation thread.
 - **UI:** Vitest for stores; Playwright against the SPA in Chromium using a
   stub API (Playwright cannot drive WKWebView).
+- **Browser-based manual checks:** the API and SPA can be exercised in a real
+  browser against a project-local engine (start the engine on a spare port and
+  open `http://127.0.0.1:<port>`), which is faster than describing a bug.
+  **Never point a browser at the user's personal TextGen install.**
 - **Shell:** keep the existing stub-engine smoke test (`SHEEP_SMOKE_CLOSE_MS`).
 - **Manual matrix:** macOS arm64 first, then Windows, then Linux.
 
@@ -443,23 +575,29 @@ P4 open-ended and partly optional.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Extension API relies on Gradio components | Extensions break | phase 4; keep Gradio available behind a flag |
+| Second model does not fit in VRAM | Load failure | explicit slot limits, clear error, owner-configurable cap |
+| A bug leaks one user's chat to another | Privacy breach | every query scoped by `user_id`; adversarial isolation tests in CI |
 | Model load blocks the event loop | UI freezes | jobs + thread pool, never in a request handler |
 | Two sources of settings | Drift and data loss | API writes through existing functions only |
 | Auth bugs | Account compromise | no custom crypto, dedicated tests, CLI recovery |
 | Scope creep into a "real" app shell | Never ships | parity list is the contract; no settings rewrite here |
 | Tauri/WebKit quirks | Rendering gaps | test early on macOS; SSE is well supported |
 | Gradio stays as a second UI | Double maintenance | hard cutover phase P5, delete rather than freeze |
+| Extensions dropped | Users of superbooga etc. lose tabs | documented, deliberate; can be redesigned later |
 
 ---
 
-## 13. Open decisions
+## 13. Decisions
 
-1. **UI framework:** React (recommended) vs Svelte.
-2. **Auth default:** off (recommended for a local app) vs on at first run.
-3. **Multi-user:** keep `--multi-user` as read-only mode, or make it real
-   per-user accounts? Recommendation: per-user accounts in P3, read-only mode
-   dropped.
-4. **Extensions:** support all, or document a supported subset?
-5. **Gradio lifetime:** delete at P5, or keep `--ui gradio` for one release
+Resolved (see §0.1): React; auth on with a first-run choice; per-user isolation;
+SQLite; extensions out of scope.
+
+Still open:
+
+1. **Gradio lifetime:** delete at P5, or keep `--ui gradio` for one release
    cycle? Recommendation: keep for one cycle.
+2. **Slot default:** `max_model_slots` = 1 or 2 out of the box? Recommendation:
+   2 when the machine has ≥32 GB unified memory, else 1.
+3. **Owner powers:** may the owner read other users' chats (admin support) or is
+   isolation absolute? Recommendation: absolute, with an explicit
+   "export my data" path instead.

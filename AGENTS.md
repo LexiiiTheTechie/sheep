@@ -57,6 +57,9 @@ or real user anger.
    is genuinely complete and the user agrees.
 7. **Do not commit `portable_env/`, `user_data/`, `cache/`, or `src-tauri/target/`.**
    They are gitignored; keep it that way.
+8. **Browser-based testing is allowed, but only against a project-local engine.**
+   Start the engine inside the repo on a spare port and inspect that. Never open
+   the user's personal TextGen install in a browser, even read-only.
 
 ---
 
@@ -299,11 +302,13 @@ planned.
 
 ### 8.3 Later
 
-- **Replace Gradio with the native UI** — see `PLAN-native-ui.md`. It covers the
-  parity inventory, the control API, the streaming/state fix, and the optional
-  account system (Argon2id, SQLite, sessions, rate limiting). Do not start this
-  before the Electron parity checklist above is closed; the two cutovers should
-  not overlap.
+- **Replace Gradio with the native UI** — see `PLAN-native-ui.md`. It is the
+  authoritative document; start with its §0.1 decisions log and the "Resume
+  here" block at the top. Confirmed: React; accounts **on by default** with a
+  first-run prompt; **strict per-user isolation** (own chats, own model slot);
+  SQLite; **extensions dropped**.
+  Do not start this before the Electron parity checklist above is closed; the two
+  cutovers should not overlap.
 - Integrated PTY console (replace terminal + log file). The `push_line` seam in
   `engine.rs` is where engine output should feed a terminal widget.
 - Signing / notarisation (unsigned macOS builds are quarantined by Gatekeeper).
