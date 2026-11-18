@@ -14,7 +14,7 @@ The shell exists and runs. This section is the truth; the rest of the document i
 | Area | Status |
 |---|---|
 | A1 spike (webview renders Gradio) | **Done on macOS.** Gradio 4.37 UI loads and runs in WKWebView. |
-| A2 supervisor | **Done.** Spawn, port selection, readiness, log capture, process-group shutdown, splash + failure screen. |
+| A2 supervisor | **Done.** Spawn, port selection, readiness, log capture, process-group shutdown, splash + failure screen, plus `SIGTERM`/`SIGINT`/`SIGHUP` cleanup. Verified: window close kills the engine and `llama-server` with no orphans. |
 | A3 parity | Mostly done: `electronAPI.pickDirectory` bridge, window state, external-link routing, single-instance, macOS Edit menu. Waived: spellcheck suggestions, custom context menu. |
 | A4 cross-OS | Windows type-checks (`cargo check --target x86_64-pc-windows-msvc`); not run on hardware. Linux unverified. |
 | CI / portable packaging | Not started. `.github/workflows/build-portable-release.yml` still bundles Electron. |
