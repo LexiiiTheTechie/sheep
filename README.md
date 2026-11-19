@@ -1,10 +1,47 @@
-# Sheep (fork of TextGen)
+# 🐑 Sheep
 
-**A desktop app for local LLMs. Open source, no telemetry.** Text, vision, tool-calling, web search. UI + API.
+**A modern, blazing-fast desktop & web UI for local LLMs powered by Tauri v2, Rust (Axum), and React 19.** Open source, strict zero-telemetry, and built for performance.
 
-[![GitHub stars](https://img.shields.io/github/stars/oobabooga/textgen?style=for-the-badge&logo=github&logoColor=white&labelColor=black)](https://github.com/oobabooga/textgen)
+[![Sheep UI Preview](docs/images/sheep-ui-preview.png)](docs/images/sheep-ui-preview.png)
 
-[![Chat mode](https://raw.githubusercontent.com/oobabooga/screenshots/refs/heads/main/CHAT-4.8.png)](https://raw.githubusercontent.com/oobabooga/screenshots/refs/heads/main/CHAT-4.8.png)
+## What is Sheep?
+
+Sheep replaces legacy Electron and Gradio wrappers with a modern, high-performance architecture:
+- **Tauri v2 Native Desktop Shell**: Ultra-lightweight, native window management with zero Chromium bloat.
+- **High-Performance Rust Backend (Axum)**: Serving the web client on `http://0.0.0.0:7850`, managing local SQLite storage, session authentication, and atomic concurrency slots.
+- **Modern React 19 + Tailwind v4 Interface**: Custom dark-themed UI featuring markdown rendering, live multi-chat drawer, inline message editing & deletion, and prompt re-generation.
+- **Strict User Privacy & Multi-User Isolation**: Independent chat histories, accounts, and session tokens. Model capacity is bounded by a hard-lockout slot manager.
+- **Dual Client Access**: Run it as a standalone native desktop app or connect directly via any browser across your local network.
+
+---
+
+## Key Features
+
+### 💬 Multi-Chat & Conversation Drawer
+- **Persistent Threads**: Chats and message turns are saved directly to SQLite (`user_data/sheep.db`).
+- **Auto-Titling**: Conversations are automatically titled from your initial prompt.
+- **Quick Actions**: Inline chat renaming, thread deletion, and single-click new conversation creation.
+
+### ✏️ Inline Message Editing & Zero-Residual Deletion
+- **Edit Anything**: Hover to edit both user prompts and model responses with inline auto-resizing textareas (`Ctrl+Enter` to save).
+- **Auto-Regenerate on Edit**: Editing earlier user messages truncates downstream history and re-runs inference from that exact point.
+- **Zero Residual Memory**: Deleting turns completely purges them from context and SQLite. The model never retains memory of deleted tokens.
+- **One-Click Regenerate**: Easily re-sample model responses from the last assistant bubble.
+
+### 📊 Right-Hand Options & Multi-Format Exports
+- **Real-Time Thread Stats**: View turn counts and slot capacity live.
+- **Instant Exports**: Download the active conversation in one click as:
+  - **`.json`**: Structured array with message roles and timestamps.
+  - **`.jsonl`**: JSON Lines format tailored for fine-tuning datasets and evaluation.
+  - **`.txt`**: Clean dialogue script format.
+  - **`.md`**: Styled Markdown document.
+
+### 🔒 Model Slot Manager & Multi-Device Isolation
+- **Capacity Guard**: `max_active_users` limits simultaneous inference slots to prevent VRAM exhaustion.
+- **Single Slot per Account**: Multiple tabs or devices logged into the same account share one active slot.
+- **Hard Lockout**: Transparent lockout banner when slots are full until an active user releases their model.
+
+---
 
 ## Get started in 1 minute
 
