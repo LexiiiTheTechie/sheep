@@ -1,23 +1,19 @@
-# Sheep desktop shell (`src-tauri`)
+# Sheep desktop shell & Rust backend (`src-tauri`)
 
-Stage A of Sheep: a Tauri v2 replacement for the old Electron wrapper in
-`desktop/`. It does not replace the web UI. Python keeps serving Gradio; Rust
-owns the process lifecycle and the window.
+Sheep replaces Electron and Gradio with a native **Tauri v2 desktop shell**, an embedded **Axum web server**, and a modern **React 19 UI** (`ui/`).
 
 ## What it does
 
-- Finds `server.py` and a Python interpreter.
-- Picks a free port starting at `7860` (or honours `--listen-port`).
-- Spawns `server.py --api [--portable] --listen-port <port>` in its own
-  process group (Unix) or a kill-on-close Job Object (Windows).
+- Embedded **Axum HTTP server** on `http://0.0.0.0:7850`:
+  - Directly serves the compiled React UI (`ui/dist`).
+  - Native **SQLite database** (`user_data/sheep.db`) for user accounts, Argon2id passwords, sessions, persistent chats, and messages.
+  - Native **Slot Concurrency Manager** with hard lockout and single-user multi-device handling.
+  - REST endpoints for multi-chat management, message editing, truncation, and deletion.
+  - Proxies LLM model and chat completions directly to the local Python engine.
+- Supports both the **Tauri desktop window** AND **external web browsers** across the network.
+- Spawns and manages `server.py --api` in its own process group / Windows Job Object.
 - Streams engine output to the terminal and to `cache/sheep-shell.log`.
-- Waits for `Running on local URL:` or an HTTP 200, then navigates the window
-  to `http://127.0.0.1:<port>/`.
-- Shows a Native failure screen with the log tail if the engine does not start.
-- Shuts the whole process tree down on window close / quit.
-- Provides the `window.electronAPI.pickDirectory()` bridge the TextGen UI
-  expects, plus an Edit menu so copy/paste shortcuts work on macOS.
-- Routes external links to the system browser.
+- Shuts the entire process tree down cleanly on window close, `Cmd+Q`, or Unix signals.
 
 ## Packaging
 

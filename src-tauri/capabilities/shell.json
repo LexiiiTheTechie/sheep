@@ -1,38 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "shell",
-  "description": "Permissions for the Sheep shell window, including the local TextGen page served on 127.0.0.1.",
+  "description": "Permissions for the Sheep shell window, including local native commands.",
   "windows": ["main"],
-  "remote": {
-    "urls": [
-      "http://127.0.0.1:7860",
-      "http://127.0.0.1:7861",
-      "http://127.0.0.1:7862",
-      "http://127.0.0.1:7863",
-      "http://127.0.0.1:7864",
-      "http://127.0.0.1:7865",
-      "http://127.0.0.1:7866",
-      "http://127.0.0.1:7867",
-      "http://127.0.0.1:7868",
-      "http://127.0.0.1:7869",
-      "http://127.0.0.1:7870",
-      "http://127.0.0.1:7871",
-      "http://127.0.0.1:7872",
-      "http://127.0.0.1:7873",
-      "http://127.0.0.1:7874",
-      "http://127.0.0.1:7875",
-      "http://127.0.0.1:7876",
-      "http://127.0.0.1:7877",
-      "http://127.0.0.1:7878",
-      "http://127.0.0.1:7879"
-    ]
-  },
   "permissions": [
     "core:default",
     "dialog:allow-open",
     "opener:allow-open-url",
     "allow-ping",
     "allow-pick-directory",
-    "allow-open-external"
+    "allow-open-external",
+    "allow-auth"
   ]
 }

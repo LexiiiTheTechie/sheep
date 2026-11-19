@@ -15,19 +15,15 @@ TextGen is a **Python** program that loads models, runs inference, and serves a
 (~150 MB) that started that Python process and opened the UI in a Chromium
 window.
 
-Sheep replaces Electron with **Tauri v2** (Rust + the operating system's own
-webview: WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux).
-
-**The Python engine is not being rewritten.** The UI is still Gradio, still
-upstream code. Rust owns only the process lifecycle and the window. Do not
-start porting the UI to Rust, and do not add settings screens — that is a later
-project (`settings/flocks/CMD_FLAGS` rewrite) and is explicitly out of scope.
+Sheep replaces Electron and Gradio with a modern **React 19 + Vite frontend** powered by a **Tauri v2 shell** and a high-performance **Rust backend** (Axum, SQLite, Argon2id).
 
 Process chain:
 
 ```
-Sheep (Rust + webview)  →  engine (Python, server.py)  →  llama-server (C++) for GGUF
+[Tauri Webview / Browser Client]  →  Rust Axum Server (:7850)  →  engine (Python, server.py :5001)  →  llama-server (C++)
 ```
+
+The Rust layer owns web serving, auth, session management, user isolation, and model slot capacity. Python remains focused on backend model loading and inference.
 
 ---
 
@@ -69,11 +65,16 @@ or real user anger.
 sheep/
 ├── server.py, modules/, extensions/   # upstream TextGen engine (Python 3.13)
 ├── js/, css/                          # Gradio UI assets
-├── user_data/                         # models, settings (gitignored)
+├── user_data/                         # models, settings, sheep.db (gitignored)
 ├── portable_env/                      # project-local Python 3.13 venv (gitignored)
 ├── desktop/                           # LEGACY Electron wrapper — remove after parity
-├── src-tauri/                         # the Tauri shell — the actual product
+├── ui/                                # Native React 19 + TypeScript + Tailwind UI
+├── src-tauri/                         # the Tauri shell & Rust backend — the actual product
 │   ├── src/main.rs                    # windows, splash, readiness, watchdog, signals
+│   ├── src/web_server.rs              # Axum HTTP server on :7850 serving UI + REST API (auth, slots, chats, messages, model proxies)
+│   ├── src/db.rs                      # SQLite database, Argon2id auth, sessions, chats, messages
+│   ├── src/slots.rs                   # Concurrency slot manager (hard lockout, multi-device)
+│   ├── src/auth_commands.rs           # Tauri IPC commands
 │   ├── src/engine.rs                  # spawn, ports, readiness, log capture, tree kill
 │   ├── src/paths.rs                   # app dir + interpreter discovery (containment)
 │   ├── src/bridge.rs                  # window.electronAPI shim + IPC commands

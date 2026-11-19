@@ -31,6 +31,7 @@ struct Inner {
 pub struct Started {
     pub engine: Arc<Engine>,
     pub port: u16,
+    pub api_port: u16,
     pub log_path: PathBuf,
 }
 
@@ -160,6 +161,7 @@ impl Engine {
         Ok(Started {
             engine,
             port,
+            api_port,
             log_path,
         })
     }

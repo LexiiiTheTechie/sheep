@@ -1,17 +1,16 @@
 # PLAN: Native UI to replace Gradio
 
-**Status:** approved, not started
+**Status:** In Progress (Phase P0 & P1 Native UI + Rust Backend running)
 **Supersedes:** nothing (adds to `PLAN-stage-a-tauri-shell.md`)
 **Owner:** Sheep
 
-> **Resume here (for any agent picking this up):**
-> Nothing has been implemented yet. The next step is Phase P0 in §10: create
-> `ui/` (React + TypeScript + Vite), serve it from Tauri instead of navigating to
-> Gradio, implement the token handshake (§4.3), and expose `GET /health` +
-> `GET /system` from a new FastAPI app. Read §6.9 before touching auth: accounts
-> are **on by default** with a first-run prompt, and **every user is isolated** —
-> own chats, own loaded model slot. Extensions are out of scope (§2).
-> Confirmed decisions are in §0.1; do not re-litigate them without the user.
+> **Current Implementation State:**
+> - `ui/` created with React 19 + TypeScript + Vite + Tailwind CSS v4.
+> - Embedded **Rust Axum web server** running on `http://0.0.0.0:7850`, serving `ui/dist` and proxying model/chat completions directly to the local Python engine.
+> - **Dual Access:** Accessible via the native Tauri desktop window AND via any standard web browser across the network.
+> - **Rust SQLite & Auth:** `user_data/sheep.db` with native Argon2id password hashing and UUID session tracking.
+> - **Slot Manager:** Atomic slot allocation enforcing `max_active_users` (default: 3) with hard lockout and single-user multi-device awareness.
+> - **First-run setup prompt:** Implemented via `AuthModal.tsx` and `/api/auth/first-run`.
 
 ---
 
@@ -20,11 +19,23 @@
 | Date | Decision |
 |---|---|
 | 2026-11-18 | **React** (React 19 + TypeScript + Vite) for the UI. |
-| 2026-11-18 | **Auth enabled by default**, with a **first-run prompt** letting the user create an account or explicitly skip it. |
+| 2026-11-18 | **Rust Backend Services**: Web server, auth, sessions, SQLite, and slot manager implemented directly in Rust (Axum + Tokio + rusqlite + Argon2id). |
+| 2026-11-18 | **Dual Access**: Tauri desktop window + standard web browser client supported concurrently on `http://0.0.0.0:7850`. |
+| 2026-11-18 | **Auth enabled by default**, with a **first-run prompt** letting the user create the initial owner account. |
 | 2026-11-18 | **Per-user isolation is mandatory**: separate chats, separate loaded models, no cross-user access. See §6.9. |
 | 2026-11-18 | **SQLite** for accounts and sessions. |
 | 2026-11-18 | **Extensions are out of scope** for now; they may be redesigned later. |
 | 2026-11-18 | Accounts are a first-class feature, not a LAN-only toggle. |
+| 2026-11-18 | **Isolation is absolute and non-negotiable.** Not even the owner can read another user's chats. Admin powers are lifecycle-only. |
+| 2026-11-18 | Unlimited accounts and sessions; **at most N distinct users may hold a model slot at once** (`max_active_users`, default 3). **Admin/owner can configure this limit in Settings.** A user with several sessions holds one slot. |
+| 2026-11-18 | **Hard lockout, no auto-timeout**: slots are released ONLY by explicit model unload, logout, or owner force-release. Inactive users do not get timed out automatically. |
+| 2026-11-18 | Separate **Account** screen (profile, password, sessions, export, delete) and **Settings** screen (engine/app configuration). |
+| 2026-11-18 | Every user gets **export chat** and **export all my data**. |
+| 2026-11-19 | **Multi-Chat Management & History**: Persistent SQLite-backed `chats` and `messages` tables with per-user isolation, auto-titling, and left drawer. |
+| 2026-11-19 | **Message Editing & Regeneration**: Inline editing for both user & assistant messages, automatic truncation & re-generation on user message edits, and one-click regenerate for the last assistant response. |
+| 2026-11-19 | **Message Deletion**: Users can delete individual messages or clear threads; deleted messages are purged from context with zero residual memory. |
+| 2026-11-19 | **Right Options Panel & Multi-format Export**: Engine status, turn statistics, and one-click export to `.json`, `.jsonl`, `.txt`, and `.md`. |
+| 2026-11-19 | **Markdown Rendering**: Full GitHub Flavored Markdown (tables, lists, codeblocks) via `react-markdown` + `remark-gfm`. |
 
 ---
 
@@ -196,7 +207,9 @@ All endpoints require the bearer token except `/health`.
 | Group | Endpoints | Notes |
 |---|---|---|
 | System | `GET /health`, `GET /system` | version, device, ports, loaded model, flags |
-| Models | `GET /models`, `GET /models/slot`, `POST /models/slot/load`, `POST /models/slot/unload`, `GET /models/download`, `GET /models/download/{id}` | slot is always the caller's; load is long-running → job id |
+| Models | `GET /models`, `GET /models/slot`, `POST /models/slot/load`, `POST /models/slot/unload`, `POST /models/slot/queue`, `DELETE /models/slot/queue`, `GET /models/download`, `GET /models/download/{id}` | slot is always the caller's; load is long-running → job id; `409 SLOTS_FULL` carries queue position |
+| Account | `GET /account`, `PATCH /account`, `POST /account/export`, `POST /account/delete`, `GET /account/sessions`, `DELETE /account/sessions/{id}` | self-service only |
+| Admin | `GET /admin/users`, `POST /admin/users`, `PATCH /admin/users/{id}`, `DELETE /admin/users/{id}`, `GET /admin/slots`, `POST /admin/slots/{id}/release` | owner only; **no read access to user content** |
 | Chat | `GET /chats`, `POST /chats`, `PATCH /chats/{id}`, `DELETE /chats/{id}`, `GET /chats/{id}/messages`, `POST /chats/{id}/generate`, `POST /chats/{id}/stop`, `POST /chats/{id}/regenerate`, `POST /chats/{id}/branch` | caller-scoped; generation returns `text/event-stream` |
 | Completions | `POST /completions` (SSE), `POST /completions/stop` | notebook/default tab |
 | Parameters | `GET/PATCH /parameters`, `GET /presets`, `POST /presets`, `DELETE /presets/{name}`, `GET /grammars` | writes through existing preset code |
@@ -204,7 +217,8 @@ All endpoints require the bearer token except `/health`.
 | Settings | `GET/PATCH /settings`, `POST /settings/apply` | `settings.yaml` stays the source of truth |
 | Files | `POST /files/pick-directory`, `POST /files/upload`, `GET /files/download` | picker goes through Tauri IPC when bundled |
 | Extensions | — | **out of scope** (§2) |
-| Auth | `POST /auth/setup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password`, `GET/POST/PATCH/DELETE /auth/users` (owner only) | see §6 |
+| Auth | `POST /auth/setup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password` | see §6 |
+| Export | `GET /export/chat/{id}` (json/markdown), `POST /export/all` | own data only; short-lived token |
 | Images / Training | phase 4, optional | Gradio-only until then |
 
 ### 5.2 Conventions
@@ -294,9 +308,22 @@ model_slots(
   model TEXT,
   api_port INTEGER,
   llama_port INTEGER,
-  state TEXT NOT NULL DEFAULT 'empty',    -- empty | loading | ready | failed
+  state TEXT NOT NULL DEFAULT 'empty',    -- empty | queued | loading | ready | failed
+  claimed_at INTEGER,
   last_used_at INTEGER,
   pid INTEGER
+)
+slot_leases(                              -- one row per active session holding the slot
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id)
+)
+slot_queue(
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requested_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
 )
 audit(
   id INTEGER PRIMARY KEY,
@@ -417,40 +444,79 @@ configuration they need (model paths, flags) but never another user's directory.
   resumed by another user, and the generation's owner is checked on `stop`.
 - Audit every cross-boundary attempt (`forbidden_access`) with the source.
 
-**Per-user model loading**
+**Per-user model loading and the concurrency cap**
 
-Each account gets its own **model slot**. A slot is one loaded model with its own
-`llama-server` process and its own port:
+Three different things are easy to confuse:
+
+| Thing | Limit | Why |
+|---|---|---|
+| Accounts | unlimited | free to create |
+| Signed-in sessions | unlimited | a signed-in session costs nothing; the same user may have several |
+| **Users actively holding a model slot** | **`max_active_users`, default 3** | this is the real resource: memory, VRAM, and compute |
+
+So "3" is **not** "3 people may be logged in". It is "3 distinct people may
+have a model in use at once". Everyone else stays signed in, browses history,
+edits settings, and sees a clear message: *"All 3 model slots are in use."*
+
+Rules:
+
+- A slot is **claimed** when the user loads a model (or sends the first message
+  that needs one) and **released ONLY when explicitly unloaded, the user logs out,
+  or the owner force-releases it**. There is **no automatic inactivity/idle timeout**.
+- **Configurable slot capacity:** The owner/admin can configure `max_active_users`
+  (default 3) in Settings at any time to match their hardware capacity.
+- **Hard lockout when full:** When `max_active_users` distinct users hold a slot, any
+  additional user is hard locked out from using the model or chatting until one of the
+  active users explicitly releases their slot (or logs out / is force-released by the owner).
+- **One slot per account, never per session.** A user with three windows or two
+  devices holds one slot; reference-counted across that user's sessions, so closing
+  one window does not free it while another session for that user remains open.
+- Slots are claimed in a **single SQLite transaction** (`BEGIN IMMEDIATE`) so two
+  users racing for the last slot cannot both win.
+- No preemption: an active user is never silently evicted.
+
+**A second, separate limit: loaded model instances**
+
+Slots are a policy cap. Memory is a physical cap, and it applies to *distinct
+models*, not users:
+
+- If two users load the **same** model, they **share one `llama-server` process**
+  and get separate conversations. That is the common case on a shared machine
+  and it costs nothing extra.
+- If they load **different** models, each needs its own process. The engine
+  allows `max_loaded_models` (auto-detected from available memory, owner
+  overridable). When the next distinct model does not fit, the request fails with
+  "only N distinct models can be resident; unload one or wait" — never by
+  evicting someone else's model.
+- Concurrent generations within one shared server are bounded by llama.cpp's
+  `--parallel`; the plan caps it at the number of active slots so latency stays
+  predictable.
+
+This gives three independent guards, each with one job:
 
 ```
-user A → slot 1 → llama-server :5006 → NemoMix 12B
-user B → slot 2 → llama-server :5007 → Qwen 0.5B
+max_active_users   = 3      policy: how many people may hold a slot
+max_loaded_models  = auto   physics: how many distinct models fit
+max_parallel_gen   = 3      latency: how many generations at once
 ```
 
-Consequences that must be designed for, not discovered:
+**Why not cap by "signed in"**
 
-- **Memory is the limit.** Two models need two copies of weights in RAM/VRAM.
-  The owner sets `max_model_slots` (default: number of accounts, capped at 2).
-  When a slot cannot be created, the request fails with a clear message rather
-  than silently evicting someone else's model.
-- **Eviction is per-user.** A user may unload their own slot; only the owner can
-  evict another user's.
-- **Idle unload.** A slot with no requests for `slot_idle_minutes` (default 30,
-  configurable) is unloaded; the user is told on next use.
-- **One generation per slot at a time**, so a slot behaves exactly like today's
-  single-user engine.
-- If `max_model_slots = 1`, the first user to load a model wins and others see
-  "a model is loaded by another account; unloading is not permitted" — this is
-  the explicit fallback for low-memory machines.
+Because it is the wrong resource. A session on a sleeping phone would occupy one
+of three seats and block a person who is actually working. Capping the *slot*
+means the seats are held by whoever is using a model right now, and an idle seat
+frees itself.
 
-**Why this is safe**
+**Cost warning, stated once:** loading a second distinct model is expensive.
+This design is honest about hardware limits instead of pretending every user can
+have a 12 B model resident at the same time.
 
-Isolation is enforced server-side, in the API layer, on every request. The UI
-never filters data for privacy; it only ever receives the caller's rows.
-
-**Cost warning, stated once:** loading a second model is expensive. This design
-is honest about hardware limits instead of pretending every user can have a 12 B
-model resident at the same time.
+**Absolute isolation is non-negotiable.** The owner is an administrator, not a
+reader: no account can read another account's chats, characters, presets, files,
+or generation streams, including the owner. Administrative actions available to
+the owner are limited to account lifecycle (create/disable/delete), slot
+force-release, and server-wide settings. Support requests are handled with
+"export my data", not by reading someone's conversations.
 
 ---
 
@@ -467,17 +533,31 @@ old tabs so muscle memory survives. Before the rail, two full-window states:
 │ Parameters │  │ messages (virtualised list)            │  │
 │ Character  │  │                                        │  │
 │ Model      │  └────────────────────────────────────────┘  │
-│ Session    │  [ composer ]  [Send] [Stop]                 │
-│ Extensions │  right drawer: modes, style, character       │
+│ ────────── │  [ composer ]  [Send] [Stop]                 │
+│ Account    │  right drawer: modes, style, character       │
+│ Settings   │                                              │
+│ (Admin)    │  slot banner: "model in use · 2 of 3 slots"  │
 └────────────┴──────────────────────────────────────────────┘
 ```
 
+**Account** and **Settings** are deliberately separate screens:
+
+| Screen | Contains | Who |
+|---|---|---|
+| Account | username, change password, active sessions/devices with revoke, **export all my data**, **delete my account**, theme preference | every user, own data only |
+| Settings | model directory, generation defaults, application flags, slot policy (`max_active_users`), auth mode, startup behaviour | owner; users see only their own preferences |
+| Admin | user list, create/disable/delete, slot table with force-release | owner only, **content-free** |
+
+A "3 of 3 slots in use" state is a first-class part of the UI, not an error
+dialog: the Chat screen shows the banner, the composer disables, and a queue
+button appears with position and estimated wait.
+
 Priority tiers:
 
-- **P0 (must ship):** Chat, Model, Parameters, Session.
+- **P0 (must ship):** Chat, Model, Parameters, Settings, Account.
 - **P1:** Notebook, Character, preset management, file save/load, settings
-  persistence, keyboard shortcuts.
-- **P2:** Image AI, Training, audio notification, update check.
+  persistence, keyboard shortcuts, export (chat + all data).
+- **P2:** Image AI, Training, audio notification, update check, Admin screen.
 - **Dropped:** Extensions (§2).
 
 ### 7.1 State model
@@ -536,7 +616,7 @@ store, not by whichever view happens to be mounted.
 | **P0 — skeleton** | Vite SPA in `ui/`; Tauri serves it; token handshake; `/health`, `/system`; splash → app | Window renders local assets, no Gradio, no remote origin |
 | **P1 — model + chat** | model list/load/unload; chat CRUD; SSE streaming; stop/regenerate; markdown + code highlight; chat persistence | Can load a GGUF and hold a streaming conversation; switching screens mid-stream keeps updating |
 | **P2 — parity core** | Parameters + presets; instruction template; Session settings; file save/load; keyboard shortcuts; notebook | Daily use without opening Gradio |
-| **P3 — accounts + isolation** | SQLite store, Argon2id, sessions, rate limiting, first-run setup, login screen, CLI reset, `--listen` enforcement, per-user data dirs, per-user model slots | Isolation tests pass (A cannot read/stop/see B); auth tests pass; exposing on LAN is safe by default |
+| **P3 — accounts + isolation** | SQLite store, Argon2id, sessions, rate limiting, first-run setup, login screen, CLI reset, `--listen` enforcement, per-user data dirs, slot claiming with the 3-user cap, queue, Account screen, export, delete account | Isolation tests pass (A cannot read/stop/see B, including as owner); slot-race test passes; export contains exactly one user's data |
 | **P4 — breadth** | Characters, Image AI, Training, audio notification, update check | Feature checklist in §4 complete or explicitly waived |
 | **P5 — cutover** | `--ui native` default, Gradio behind `--ui gradio`; delete Gradio UI code once stable | No user-visible regression for one release cycle |
 

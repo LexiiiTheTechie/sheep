@@ -1,11 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod args;
+mod auth_commands;
 mod bridge;
+mod db;
 mod engine;
 mod menu;
 mod paths;
+mod slots;
+mod web_server;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -52,78 +57,81 @@ fn run_headless(args: &[String], help: bool) -> i32 {
     };
 
     let mut command = std::process::Command::new(python);
-    command.arg(server).current_dir(&base);
-    if !help {
-        command.arg("--api");
-        if base.join("portable_env").exists() {
-            command.arg("--portable");
-        }
+    command.arg(server);
+    if help {
+        command.arg("--help");
+    } else {
+        command.args(args);
     }
-    command.args(args);
 
     match command.status() {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {
-            eprintln!("Failed to launch the engine: {error}");
+            eprintln!("failed to run engine: {error}");
             1
         }
     }
 }
 
 fn run_gui(rest: Vec<String>) {
+    let base_dir = paths::base_dir();
+    let db_path = base_dir.join("user_data").join("sheep.db");
+    let database = Arc::new(db::Database::new(db_path).expect("failed to initialize sheep SQLite database"));
+    let initial_max_users = database.get_max_active_users().unwrap_or(3) as usize;
+    let slot_manager = Arc::new(slots::SlotManager::new(initial_max_users));
+
+    let app_state = auth_commands::AppState {
+        db: database.clone(),
+        slots: slot_manager.clone(),
+    };
+
     let mut builder = tauri::Builder::default();
 
-    // Smoke tests must not be swallowed by an already-running window.
-    if std::env::var_os("SHEEP_SMOKE_TEST_MS").is_none()
-        && std::env::var_os("SHEEP_SMOKE_CLOSE_MS").is_none()
+    #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }));
+        if std::env::var_os("SHEEP_SMOKE_TEST_MS").is_none()
+            && std::env::var_os("SHEEP_SMOKE_CLOSE_MS").is_none()
+        {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }));
+        }
     }
 
+    let web_db = database.clone();
+    let web_slots = slot_manager.clone();
+    let web_base_dir = base_dir.clone();
+
     builder
+        .manage(app_state)
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             bridge::ping,
             bridge::pick_directory,
-            bridge::open_external
+            bridge::open_external,
+            auth_commands::check_first_run,
+            auth_commands::setup_owner,
+            auth_commands::login,
+            auth_commands::get_current_user,
+            auth_commands::logout,
+            auth_commands::get_user_sessions,
+            auth_commands::revoke_session,
+            auth_commands::update_password,
+            auth_commands::delete_account,
+            auth_commands::get_slot_status,
+            auth_commands::claim_slot,
+            auth_commands::release_slot,
+            auth_commands::admin_force_release,
+            auth_commands::set_max_active_users
         ])
         .setup(move |app| {
             menu::install(app)?;
-
-            // Hidden CI/smoke hook: start the app, let it boot the engine, then
-            // exit through the normal shutdown path. Never set in normal use.
-            if let Ok(value) = std::env::var("SHEEP_SMOKE_TEST_MS") {
-                if let Ok(millis) = value.parse::<u64>() {
-                    let handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(millis));
-                        eprintln!("[sheep] smoke test: requesting exit");
-                        handle.exit(0);
-                    });
-                }
-            }
-
-            // Exercises the real window-close path (rather than app.exit).
-            if let Ok(value) = std::env::var("SHEEP_SMOKE_CLOSE_MS") {
-                if let Ok(millis) = value.parse::<u64>() {
-                    let handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(millis));
-                        eprintln!("[sheep] smoke test: closing window");
-                        if let Some(window) = handle.get_webview_window("main") {
-                            let _ = window.close();
-                        }
-                    });
-                }
-            }
 
             let nav_handle = app.handle().clone();
             let window =
@@ -162,9 +170,26 @@ fn run_gui(rest: Vec<String>) {
                     let _ = ENGINE.set(engine.clone());
                     install_signal_cleanup();
 
+                    let dist_dir = web_base_dir.join("ui").join("dist");
+                    let server_ctx = web_server::ServerContext {
+                        db: web_db,
+                        slots: web_slots,
+                        python_api_port: started.api_port,
+                        dist_dir,
+                    };
+
+                    // Spawn Rust Axum Web Server on 0.0.0.0:7850 so both local and LAN webclients work without colliding with 7860!
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime for Web server");
+                        rt.block_on(async {
+                            let addr: SocketAddr = "0.0.0.0:7850".parse().unwrap();
+                            web_server::run_server(addr, server_ctx).await;
+                        });
+                    });
+
                     let handle = app.handle().clone();
                     std::thread::spawn(move || {
-                        wait_then_open(handle, engine, started.port, started.log_path);
+                        wait_engine_ready(handle, engine, started.port, started.log_path);
                     });
                 }
                 Err(error) => show_failure(&window, &error),
@@ -198,20 +223,6 @@ fn run_gui(rest: Vec<String>) {
         });
 }
 
-/// Install Unix signal handlers so `SIGTERM` / `SIGINT` / `SIGHUP` also stop
-/// the engine.
-///
-/// The window-close path already stops the engine, but the app can be killed
-/// from outside (`Ctrl+C`, `kill`, a supervisor). The engine runs in its own
-/// process group so it can be killed as a tree, which also means those signals
-/// never reach it — without this handler an external `SIGTERM` orphans the
-/// engine and `llama-server`.
-///
-/// The handler only writes one byte to a pipe (`write` is async-signal-safe).
-/// A dedicated thread performs the actual shutdown.
-///
-/// `SIGKILL` cannot be handled; a `kill -9` of the shell will still orphan the
-/// engine. Nothing in-process can prevent that.
 #[cfg(unix)]
 fn install_signal_cleanup() {
     use std::sync::atomic::{AtomicI32, Ordering};
@@ -234,8 +245,6 @@ fn install_signal_cleanup() {
             return;
         }
         let pair = (fds[0], fds[1]);
-        // Cast through an explicit function pointer: casting a function *item*
-        // straight to an integer is deprecated.
         let handler = on_signal as extern "C" fn(libc::c_int);
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             libc::signal(signal, handler as usize as libc::sighandler_t);
@@ -270,7 +279,7 @@ fn install_signal_cleanup() {
 #[cfg(not(unix))]
 fn install_signal_cleanup() {}
 
-fn wait_then_open(
+fn wait_engine_ready(
     app: tauri::AppHandle,
     engine: Arc<engine::Engine>,
     port: u16,
@@ -280,6 +289,7 @@ fn wait_then_open(
 
     loop {
         if engine.is_ready() || engine::http_probe(port) {
+            eprintln!("[sheep] engine is ready on port {port}");
             break;
         }
 
@@ -306,69 +316,56 @@ fn wait_then_open(
         std::thread::sleep(Duration::from_millis(250));
     }
 
-    if let Some(window) = app.get_webview_window("main") {
-        let url = format!("http://127.0.0.1:{port}/");
-        match tauri::Url::parse(&url) {
-            Ok(parsed) => {
-                let _ = window.set_title("Sheep");
-                let _ = window.navigate(parsed);
-            }
-            Err(error) => {
-                show_failure(&window, &format!("Invalid engine URL {url}: {error}"));
-                return;
-            }
-        }
-    }
+    watchdog(app, engine, log_path);
+}
 
-    // Stay alive as a watchdog: if the engine dies after the UI is up, the
-    // webview would otherwise sit on a dead page.
+fn watchdog(app: tauri::AppHandle, engine: Arc<engine::Engine>, log_path: PathBuf) {
     loop {
-        std::thread::sleep(Duration::from_millis(1000));
+        std::thread::sleep(Duration::from_millis(500));
         if let Some(code) = engine.poll_exit() {
             let message = format!(
-                "The engine stopped unexpectedly (exit code {}).\n\nLog: {}\n\n{}",
+                "The engine stopped unexpectedly (exit code {}).\n\n{}",
                 code.map(|value| value.to_string())
                     .unwrap_or_else(|| "unknown".into()),
-                log_path.display(),
-                engine.log_tail(20)
+                tail_for_display(&engine, &log_path)
             );
-            let _ = app
-                .dialog()
-                .message(message)
-                .title("Sheep")
-                .kind(MessageDialogKind::Error)
-                .blocking_show();
-            app.exit(1);
+            show_dialog_and_exit(app, &message);
             return;
         }
     }
 }
 
-fn tail_for_display(engine: &engine::Engine, log_path: &std::path::Path) -> String {
-    let tail = engine.log_tail(40);
+fn tail_for_display(engine: &engine::Engine, log_path: &PathBuf) -> String {
+    let tail = engine.log_tail(50);
     if tail.trim().is_empty() {
-        format!(
-            "No engine output was captured.\nLog file: {}",
-            log_path.display()
-        )
+        format!("Log file: {}", log_path.display())
     } else {
-        format!(
-            "Last engine output:\n{}\n\nFull log: {}",
-            tail,
-            log_path.display()
-        )
+        format!("Recent log output:\n{tail}\n\nFull log: {}", log_path.display())
     }
 }
 
-fn show_failure_on(window: Option<WebviewWindow>, message: &str) {
-    match window {
-        Some(window) => show_failure(&window, message),
-        None => eprintln!("{message}"),
-    }
-}
-
-fn show_failure(window: &WebviewWindow, message: &str) {
-    let encoded = serde_json::to_string(message).unwrap_or_else(|_| "\"unknown error\"".into());
-    let script = format!("window.sheepFail && window.sheepFail({encoded});");
+fn show_failure(window: &WebviewWindow, error: &str) {
+    let escaped = serde_json::to_string(error).unwrap_or_else(|_| "\"Failed\"".into());
+    let script = format!(
+        "if (window.sheepFail) {{ window.sheepFail({escaped}); }} else {{ document.body.innerText = {escaped}; }}"
+    );
     let _ = window.eval(&script);
+}
+
+fn show_failure_on(window: Option<WebviewWindow>, error: &str) {
+    if let Some(window) = window {
+        show_failure(&window, error);
+    }
+}
+
+fn show_dialog_and_exit(app: tauri::AppHandle, message: &str) {
+    let handle = app.clone();
+    let text = message.to_string();
+    app.dialog()
+        .message(text)
+        .title("Sheep Engine Error")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| {
+            handle.exit(1);
+        });
 }

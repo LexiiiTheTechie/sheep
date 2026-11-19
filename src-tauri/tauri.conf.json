@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "tech.lexiii.sheep",
   "build": {
-    "frontendDist": "shell"
+    "frontendDist": "../ui/dist"
   },
   "app": {
     "withGlobalTauri": true,
@@ -19,7 +19,7 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Sheep - native desktop shell for TextGen",
-    "longDescription": "Sheep runs the TextGen engine and shows its web UI in a native window. It replaces the Electron wrapper and leaves the Python engine unchanged.",
+    "longDescription": "Sheep runs the TextGen engine and shows its native UI. It replaces the Electron wrapper and provides strict user isolation with native performance.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

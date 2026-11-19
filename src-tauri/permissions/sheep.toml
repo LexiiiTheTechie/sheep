@@ -1,8 +1,5 @@
-# Application-level permissions for the bridge commands that the local
-# TextGen page is allowed to call.
-#
-# Tauri v2 applies the ACL to custom commands as well as plugin commands when
-# the caller is a remote origin, so these must be granted explicitly.
+# Application-level permissions for commands that the local
+# frontend page is allowed to call.
 
 [[permission]]
 identifier = "allow-ping"
@@ -18,3 +15,23 @@ commands.allow = ["pick_directory"]
 identifier = "allow-open-external"
 description = "Open http(s) links in the system browser."
 commands.allow = ["open_external"]
+
+[[permission]]
+identifier = "allow-auth"
+description = "Native authentication, sessions, and slot manager commands."
+commands.allow = [
+  "check_first_run",
+  "setup_owner",
+  "login",
+  "get_current_user",
+  "logout",
+  "get_user_sessions",
+  "revoke_session",
+  "update_password",
+  "delete_account",
+  "get_slot_status",
+  "claim_slot",
+  "release_slot",
+  "admin_force_release",
+  "set_max_active_users"
+]
