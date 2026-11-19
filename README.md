@@ -1,4 +1,4 @@
-# TextGen
+# Sheep (fork of TextGen)
 
 **A desktop app for local LLMs. Open source, no telemetry.** Text, vision, tool-calling, web search. UI + API.
 
