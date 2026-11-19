@@ -504,6 +504,4 @@ https://github.com/oobabooga/textgen/wiki
 [![Reddit](https://img.shields.io/reddit/subreddit-subscribers/Oobabooga?style=for-the-badge&logo=reddit&logoColor=white&label=r%2FOobabooga&labelColor=black&color=FF4500)](https://www.reddit.com/r/Oobabooga/)
 
 ## Acknowledgments
-
-- In August 2023, [Andreessen Horowitz](https://a16z.com/) (a16z) provided a generous grant to encourage and support my independent work on this project. I am **extremely** grateful for their trust and recognition.
 - This project was inspired by [AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui) and wouldn't exist without it.
